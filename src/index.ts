@@ -49,7 +49,6 @@ app.use("/mcp", (req, res, next) => {
 
 app.all("/mcp", (req, res) => {
   const rawBody = (req as any).rawBody;
-  console.log("MCP request received, rawBody:", rawBody);
   const body = rawBody ? JSON.parse(rawBody) : undefined;
   transport.handleRequest(req, res, body);
 });
