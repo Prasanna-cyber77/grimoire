@@ -2,9 +2,11 @@ import initSqlJs, { Database } from "sql.js";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { createRequire } from "module";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const require = createRequire(import.meta.url);
 
 let db: Database | null = null;
 let dbPath: string | null = null;
@@ -12,7 +14,8 @@ let SQL: any = null;
 
 async function ensureSqlJs(): Promise<any> {
   if (SQL) return SQL;
-  const sqlJs = await initSqlJs({ locateFile: () => "sql-wasm.wasm" });
+  const wasmPath = require.resolve("sql.js/dist/sql-wasm.wasm");
+  const sqlJs = await initSqlJs({ locateFile: () => wasmPath });
   SQL = sqlJs.Database;
   return SQL;
 }

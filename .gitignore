@@ -7,3 +7,4 @@ scripts/manual/
 test_*.js
 test_*.json
 data/*.db
+sql-wasm.wasm
