@@ -13,6 +13,29 @@ npm install
 npm run build
 ```
 
+## Configuration
+
+Copy `.env.example` to `.env` and adjust as needed:
+
+```bash
+cp .env.example .env
+```
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PORT` | HTTP server port | `3000` |
+| `DB_PATH` | SQLite database file path | `./data/grimoire.db` |
+| `NARRATION_ENABLED` | Enable AI narration via Amazon Bedrock | `true` |
+| `AWS_REGION` | AWS region for Bedrock | `us-east-1` |
+| `BEDROCK_MODEL_ID` | Bedrock model ID (Claude) | `anthropic.claude-3-sonnet-20240229-v1:0` |
+| `AWS_ACCESS_KEY_ID` | AWS credentials (optional, can use IAM role) | — |
+| `AWS_SECRET_ACCESS_KEY` | AWS credentials (optional, can use IAM role) | — |
+| `AWS_SESSION_TOKEN` | AWS session token (optional) | — |
+
+**Important**: Never commit real AWS credentials to version control. Use IAM roles, environment variables, or AWS config files for production deployments.
+
 ## Run Locally
 
 ```bash
@@ -35,22 +58,28 @@ docker build -t grimoire .
 docker run -p 3000:3000 --env-file .env grimoire
 ```
 
-## MCP Tools (Phase 1)
+## MCP Tools (Phase 1 + Phase 2)
 
-The server exposes the following MCP tools:
+The server exposes the following MCP tools. All tools that mutate state (`move`, `pick_up`, `drop`, `roll_check`, `look`, `describe_scene`) now return a `narration` field containing AI-generated flavor text (or deterministic fallback when Bedrock is unavailable/disabled).
 
-| Tool | Description | Parameters |
-|------|-------------|------------|
-| `new_game` | Create a new game with a character at the crossroads | `characterName` (string, 1-50 chars) |
-| `get_state` | Get current game state (character, location, inventory, story log) | `gameId` (optional, integer) |
-| `move` | Move in a direction from current location | `direction` (north/south/east/west), `gameId` (optional) |
-| `look` | Look at current location description and exits | `gameId` (optional) |
-| `pick_up` | Pick up an item and add to inventory | `item` (string), `gameId` (optional) |
-| `drop` | Drop an item from inventory | `item` (string), `gameId` (optional) |
-| `roll_check` | Roll d20 + stat modifier vs difficulty | `skill` (strength/wits/charm), `difficulty` (1-30), `gameId` (optional) |
-| `describe_scene` | Get current location description | `gameId` (optional) |
+| Tool | Description | Parameters | Returns |
+|------|-------------|------------|---------|
+| `new_game` | Create a new game with a character at the crossroads | `characterName` (string, 1-50 chars) | `GameState` |
+| `get_state` | Get current game state (character, location, inventory, story log) | `gameId` (optional, integer) | `GameState` |
+| `move` | Move in a direction from current location | `direction` (north/south/east/west), `gameId` (optional) | `{ success, message, location?, narration }` |
+| `look` | Look at current location description and exits | `gameId` (optional) | `{ description, exits, narration }` |
+| `pick_up` | Pick up an item and add to inventory | `item` (string), `gameId` (optional) | `{ success, message, narration }` |
+| `drop` | Drop an item from inventory | `item` (string), `gameId` (optional) | `{ success, message, narration }` |
+| `roll_check` | Roll d20 + stat modifier vs difficulty | `skill` (strength/wits/charm), `difficulty` (1-30), `gameId` (optional) | `{ roll, modifier, total, difficulty, success, skill, narration }` |
+| `describe_scene` | Get current location description | `gameId` (optional) | `{ description, narration }` |
 
 All tools accept an optional `gameId`. If omitted, the most recently created game is used.
+
+## AI Narration (Phase 2)
+
+When `NARRATION_ENABLED=true` (default) and valid AWS credentials are configured, the server uses Amazon Bedrock (Claude) to generate vivid, immersive second-person narration for each action. The narration is **strictly grounded in the true game state** — the LLM receives only the deterministic facts (location, event outcome, character sheet, recent history) and is instructed never to invent or contradict any game facts.
+
+If narration is disabled, credentials are missing, or the Bedrock call fails, the server gracefully falls back to deterministic descriptive text. **The server never crashes or hangs due to Bedrock issues.**
 
 ## Test with MCP Inspector
 

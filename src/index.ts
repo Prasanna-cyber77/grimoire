@@ -2,7 +2,21 @@ import express from "express";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { initializeDatabase, getLatestGameId, createGame, getGameState, moveCharacter, lookAround, pickUpItem, dropItem, rollCheck, getCurrentSceneDescription } from "./db/repository.js";
+import { 
+  initializeDatabase, 
+  getLatestGameId, 
+  createGame, 
+  getGameState, 
+  moveCharacter, 
+  lookAround, 
+  pickUpItem, 
+  dropItem, 
+  rollCheck, 
+  getCurrentSceneDescription,
+  logEvent,
+} from "./db/repository.js";
+import { persistDatabase } from "./db/database.js";
+import { narrate, NarrationContext } from "./ai/narrator.js";
 
 const PORT = parseInt(process.env.PORT || "3000", 10);
 
@@ -18,6 +32,56 @@ async function resolveGameId(gameId?: number): Promise<number> {
   const latest = await getLatestGameId();
   if (latest === null) throw new Error("No active game. Create one with new_game.");
   return latest;
+}
+
+async function buildNarrationContext(
+  gameId: number,
+  eventType: NarrationContext["event"]["type"],
+  eventDescription: string,
+  success?: boolean
+): Promise<NarrationContext> {
+  const state = await getGameState(gameId);
+  if (!state) {
+    throw new Error("Game not found");
+  }
+
+  const recentLog = state.storyLog.slice(-3);
+  const exits = Object.keys(state.location.exits);
+
+  return {
+    location: {
+      name: state.location.name,
+      description: state.location.description,
+      exits,
+    },
+    event: {
+      type: eventType,
+      description: eventDescription,
+      success,
+    },
+    character: {
+      name: state.character.name,
+      hp_current: state.character.hp_current,
+      hp_max: state.character.hp_max,
+      strength: state.character.strength,
+      wits: state.character.wits,
+      charm: state.character.charm,
+    },
+    recentLog,
+  };
+}
+
+async function narrateAndLog(
+  gameId: number,
+  eventType: NarrationContext["event"]["type"],
+  eventDescription: string,
+  success?: boolean
+): Promise<string> {
+  const context = await buildNarrationContext(gameId, eventType, eventDescription, success);
+  const narration = await narrate(context);
+  await logEvent(gameId, narration);
+  persistDatabase();
+  return narration;
 }
 
 server.tool(
@@ -75,9 +139,19 @@ server.tool(
     gameId: z.number().int().positive().optional()
   },
   async ({ direction, gameId }) => {
-    const result = await moveCharacter(await resolveGameId(gameId), direction);
+    const resolvedGameId = await resolveGameId(gameId);
+    const result = await moveCharacter(resolvedGameId, direction);
+    let narration = "";
+    if (result.success) {
+      narration = await narrateAndLog(
+        resolvedGameId,
+        "move",
+        `Moved ${direction} to ${result.location?.name}`,
+        true
+      );
+    }
     return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      content: [{ type: "text", text: JSON.stringify({ ...result, narration }, null, 2) }]
     };
   }
 );
@@ -89,9 +163,15 @@ server.tool(
     gameId: z.number().int().positive().optional()
   },
   async ({ gameId }) => {
-    const result = await lookAround(await resolveGameId(gameId));
+    const resolvedGameId = await resolveGameId(gameId);
+    const result = await lookAround(resolvedGameId);
+    const narration = await narrateAndLog(
+      resolvedGameId,
+      "look",
+      `You look around the ${result.description.split(".")[0].toLowerCase()}`
+    );
     return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      content: [{ type: "text", text: JSON.stringify({ ...result, narration }, null, 2) }]
     };
   }
 );
@@ -104,9 +184,19 @@ server.tool(
     gameId: z.number().int().positive().optional()
   },
   async ({ item, gameId }) => {
-    const result = await pickUpItem(await resolveGameId(gameId), item);
+    const resolvedGameId = await resolveGameId(gameId);
+    const result = await pickUpItem(resolvedGameId, item);
+    let narration = "";
+    if (result.success) {
+      narration = await narrateAndLog(
+        resolvedGameId,
+        "pick_up",
+        `Picked up ${item}`,
+        true
+      );
+    }
     return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      content: [{ type: "text", text: JSON.stringify({ ...result, narration }, null, 2) }]
     };
   }
 );
@@ -119,9 +209,19 @@ server.tool(
     gameId: z.number().int().positive().optional()
   },
   async ({ item, gameId }) => {
-    const result = await dropItem(await resolveGameId(gameId), item);
+    const resolvedGameId = await resolveGameId(gameId);
+    const result = await dropItem(resolvedGameId, item);
+    let narration = "";
+    if (result.success) {
+      narration = await narrateAndLog(
+        resolvedGameId,
+        "drop",
+        `Dropped ${item}`,
+        true
+      );
+    }
     return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      content: [{ type: "text", text: JSON.stringify({ ...result, narration }, null, 2) }]
     };
   }
 );
@@ -135,9 +235,16 @@ server.tool(
     gameId: z.number().int().positive().optional()
   },
   async ({ skill, difficulty, gameId }) => {
-    const result = await rollCheck(await resolveGameId(gameId), skill, difficulty);
+    const resolvedGameId = await resolveGameId(gameId);
+    const result = await rollCheck(resolvedGameId, skill, difficulty);
+    const narration = await narrateAndLog(
+      resolvedGameId,
+      "roll_check",
+      `${skill} check: rolled ${result.roll} + ${result.modifier} = ${result.total} vs ${difficulty}`,
+      result.success
+    );
     return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      content: [{ type: "text", text: JSON.stringify({ ...result, narration }, null, 2) }]
     };
   }
 );
@@ -149,9 +256,15 @@ server.tool(
     gameId: z.number().int().positive().optional()
   },
   async ({ gameId }) => {
-    const text = await getCurrentSceneDescription(await resolveGameId(gameId));
+    const resolvedGameId = await resolveGameId(gameId);
+    const text = await getCurrentSceneDescription(resolvedGameId);
+    const narration = await narrateAndLog(
+      resolvedGameId,
+      "describe_scene",
+      text
+    );
     return {
-      content: [{ type: "text", text }]
+      content: [{ type: "text", text: JSON.stringify({ description: text, narration }, null, 2) }]
     };
   }
 );

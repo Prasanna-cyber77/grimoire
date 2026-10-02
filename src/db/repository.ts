@@ -232,7 +232,7 @@ export async function rollCheck(gameId: number, skill: string, difficulty: numbe
   return { roll, modifier, total, difficulty, success, skill };
 }
 
-async function logEvent(gameId: number, entry: string): Promise<void> {
+export async function logEvent(gameId: number, entry: string): Promise<void> {
   const db = await getDatabase();
   db.exec(`INSERT INTO story_log (game_id, entry) VALUES (${gameId}, '${entry.replace(/'/g, "''")}')`);
 }
