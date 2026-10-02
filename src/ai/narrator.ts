@@ -142,9 +142,10 @@ function fallbackNarration(context: NarrationContext): string {
       return `You travel ${event.description.replace("Moved ", "").replace(" to ", " toward ")}. ${location.description}`;
     case "look":
       return `You look around. ${location.description} Exits lead ${location.exits.join(", ")}.`;
-    case "roll_check":
+    case "roll_check": {
       const outcome = event.success ? "succeed" : "fail";
       return `You ${outcome} at the ${event.description.toLowerCase()}. ${character.name} watches the dice settle.`;
+    }
     case "pick_up":
       return `You pick up ${event.description.replace("Picked up ", "")}. It joins your inventory.`;
     case "drop":
